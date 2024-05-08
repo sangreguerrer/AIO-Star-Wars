@@ -39,7 +39,6 @@ class StarPerson(Base):
     created = Column(String)
     edited = Column(String)
     vehicles = Column(ARRAY(String))
-    url = Column(String)
 
 
 async def init_db():
