@@ -32,13 +32,14 @@ class StarPerson(Base):
     height = Column(String)
     homeworld = Column(String)
     mass = Column(String)
-    name = Column(String)
+    name = Column(String, unique=True)
     skin_color = Column(String)
     species = Column(ARRAY(String))
     starships = Column(ARRAY(String))
     created = Column(String)
     edited = Column(String)
     vehicles = Column(ARRAY(String))
+    url = Column(String)
 
 
 async def init_db():

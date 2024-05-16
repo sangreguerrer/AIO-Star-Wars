@@ -1,5 +1,10 @@
 import asyncio
+import datetime
+
+from aiohttp import ClientSession
+from asyncache import cached
 import aiohttp
+from cachetools import LRUCache
 from more_itertools import chunked
 
 
@@ -13,6 +18,18 @@ async def get_person(person_id, session):
         return await response.json()
 
 
+async def get_url(url: str, session: ClientSession) -> dict:
+    response = await session.get(url)
+    data = await response.json()
+    return data
+
+
+@cached(key=lambda url, session: url, cache=LRUCache(maxsize=10000))
+async def extract_name_from_url(url: str, session: ClientSession) -> str:
+    response_dict = await get_url(url, session)
+    return response_dict.get("name") or response_dict.get("title")
+
+
 async def insert_person(records):
     async with aiohttp.ClientSession() as session:
         persons = []
@@ -20,21 +37,28 @@ async def insert_person(records):
             person_data = {}
             for attr in StarPerson.__table__.columns:
                 if attr.name in record:
-                    if isinstance(record[attr.name], list) and len(record[attr.name]) > 0:
-                        person_data[attr.name] = []
-                        for item in record[attr.name]:
-                            response = await session.get(item)
-                            json = await response.json()
-                            if 'title' in json:
-                                person_data[attr.name].append(json['title'])
-                            elif 'name' in json:
-                                person_data[attr.name].append(json['name'])
-                    elif attr.name == 'homeworld':
-                        response = await session.get(record[attr.name])
-                        json = await response.json()
-                        person_data[attr.name] = json['name']
-                    else:
-                        person_data[attr.name] = record[attr.name]
+                    films_coro = asyncio.gather(
+                        *[extract_name_from_url(url, session) for url in record['films']]
+                    )
+                    species_coro = asyncio.gather(
+                        *[extract_name_from_url(url, session) for url in record["species"]]
+                    )
+                    starships_coro = asyncio.gather(
+                        *[extract_name_from_url(url, session) for url in record["starships"]]
+                    )
+                    vehicles_coro = asyncio.gather(
+                        *[extract_name_from_url(url, session) for url in record["vehicles"]]
+                    )
+                    films, species, starships, vehicles = await asyncio.gather(
+                        films_coro, species_coro, starships_coro, vehicles_coro
+                    )
+                    person_data = {
+                        **record,
+                        "films": films,
+                        "species": species,
+                        "starships": starships,
+                        "vehicles": vehicles
+                    }
             person = StarPerson(**person_data)
             persons.append(person)
 
@@ -54,4 +78,12 @@ async def main():
     await session.close()
     all_tasks_set = asyncio.all_tasks() - {asyncio.current_task()}
     await asyncio.gather(*all_tasks_set)
-asyncio.run(main())
+
+
+if __name__ == "__main__":
+    start_time = datetime.datetime.now()
+    asyncio.run(main())
+    print(datetime.datetime.now() - start_time)
+
+# 0:00:05.072299
+
